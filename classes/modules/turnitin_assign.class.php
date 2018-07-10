@@ -68,8 +68,8 @@ class turnitin_assign {
      *
      * @param $assignid
      */
-    public function is_resubmission_allowed($assignid, $reportgenspeed, $submissiontype, $attemptreopenmethod) {
-        global $DB;
+    public function is_resubmission_allowed($assignid, $reportgenspeed, $submissiontype, $attemptreopenmethod, $attemptreopened = null) {
+        global $DB, $CFG;
 
         // Get the maximum number of file submissions allowed.
         $params = array('assignment' => $assignid,
@@ -82,8 +82,20 @@ class turnitin_assign {
             $maxfilesubmissions = $result->value;
         }
 
-        return ($reportgenspeed > 0 && $attemptreopenmethod == ASSIGN_ATTEMPT_REOPEN_METHOD_NONE
-            && ($submissiontype == 'text_content' || $maxfilesubmissions == 1));
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
+
+        // If resubmissions are enabled in a Turnitin sense.
+        if ($reportgenspeed > 0) {
+            // If the attempt reopened method is none, or an attempt has not been reopened/has previous submission.
+            if ($attemptreopenmethod == ASSIGN_ATTEMPT_REOPEN_METHOD_NONE || $attemptreopened == 'submitted') {
+                // If this is a text or file submission, or we can only submit one file.
+                if ($submissiontype == 'text_content' || ($submissiontype == 'file' && $maxfilesubmissions == 1)) {
+                    // Treat this as a resubmission.
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public function get_onlinetext($userid, $cm) {
@@ -98,8 +110,13 @@ class turnitin_assign {
 
         $onlinetextdata = new stdClass();
         $onlinetextdata->itemid = $submission->id;
-        $onlinetextdata->onlinetext = $moodletextsubmission->onlinetext;
-        $onlinetextdata->onlineformat = $moodletextsubmission->onlineformat;
+
+        if (isset($moodletextsubmission->onlinetext)) {
+            $onlinetextdata->onlinetext = $moodletextsubmission->onlinetext;
+        }
+        if (isset($moodletextsubmission->onlineformat)) {
+            $onlinetextdata->onlineformat = $moodletextsubmission->onlineformat;
+        }
 
         return $onlinetextdata;
     }

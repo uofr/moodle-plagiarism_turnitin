@@ -23,10 +23,23 @@ if (!defined('MOODLE_INTERNAL')) {
     die('Direct access to this script is forbidden.'); // It must be included from a Moodle page.
 }
 
+// Constants.
 define('PLAGIARISM_TURNITIN_NUM_RECORDS_RETURN', 500);
 define('PLAGIARISM_TURNITIN_CRON_SUBMISSIONS_LIMIT', 100);
 define('PLAGIARISM_TURNITIN_REPORT_GEN_SPEED_NUM_RESUBMISSIONS', 3);
 define('PLAGIARISM_TURNITIN_REPORT_GEN_SPEED_NUM_HOURS', 24);
+
+// Admin Repository constants.
+define('PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_STANDARD', 0);
+define('PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_EXPANDED', 1);
+define('PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_FORCE_STANDARD', 2);
+define('PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_FORCE_NO', 3);
+define('PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_FORCE_INSTITUTIONAL', 4);
+
+// Submit Papers to Repository constants.
+define('PLAGIARISM_TURNITIN_SUBMIT_TO_NO_REPOSITORY', 0);
+define('PLAGIARISM_TURNITIN_SUBMIT_TO_STANDARD_REPOSITORY', 1);
+define('PLAGIARISM_TURNITIN_SUBMIT_TO_INSTITUTIONAL_REPOSITORY', 2);
 
 // Define accepted files if the module is not accepting any file type.
 global $turnitinacceptedfiles;
@@ -52,6 +65,9 @@ require_once($CFG->libdir.'/gradelib.php');
 
 // Get global class.
 require_once($CFG->dirroot.'/plagiarism/lib.php');
+
+// Get helper methods.
+require_once(__DIR__.'/locallib.php');
 
 // Require classes from mod/turnitintooltwo.
 require_once($CFG->dirroot.'/mod/turnitintooltwo/lib.php');
@@ -533,7 +549,7 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
     public function load_page_components() {
         global $CFG, $PAGE;
 
-        $jsurl = new moodle_url($CFG->wwwroot.'/plagiarism/turnitin/jquery/jquery-1.8.2.min.js');
+        $jsurl = new moodle_url($CFG->wwwroot.'/plagiarism/turnitin/jquery/jquery-3.3.1.min.js');
         $PAGE->requires->js($jsurl);
         $jsurl = new moodle_url($CFG->wwwroot.'/mod/turnitintooltwo/jquery/turnitintooltwo.js');
         $PAGE->requires->js($jsurl);
@@ -1665,20 +1681,14 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
         $reposetting = (isset($modulepluginsettings["plagiarism_submitpapersto"])) ? $modulepluginsettings["plagiarism_submitpapersto"] : 1;
 
         // Override if necessary when admin is forcing standard/no repository.
-        switch ($config->repositoryoption) {
-            case 2; // Standard repository being forced.
-                $reposetting = 1;
-                break;
-            case 3; // No repository being forced.
-                $reposetting = 0;
-                break;
-        }
+        $reposetting = plagiarism_turnitin_override_repository($reposetting);
 
         $assignment->setSubmitPapersTo($reposetting);
         $assignment->setSubmittedDocumentsCheck($modulepluginsettings["plagiarism_compare_student_papers"]);
         $assignment->setInternetCheck($modulepluginsettings["plagiarism_compare_internet"]);
         $assignment->setPublicationsCheck($modulepluginsettings["plagiarism_compare_journals"]);
-        if ($config->repositoryoption == 1) {
+        if ($config->repositoryoption == PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_EXPANDED ||
+            $config->repositoryoption == PLAGIARISM_TURNITIN_ADMIN_REPOSITORY_OPTION_FORCE_INSTITUTIONAL) {
             $institutioncheck = (isset($modulepluginsettings["plagiarism_compare_institution"])) ? $modulepluginsettings["plagiarism_compare_institution"] : 0;
             $assignment->setInstitutionCheck($institutioncheck);
         }
@@ -2117,7 +2127,7 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
      * @param int $itemid
      * @return bool
      */
-    public function queue_submission_to_turnitin($cm, $author, $submitter, $identifier, $submissiontype, $itemid = 0) {
+    public function queue_submission_to_turnitin($cm, $author, $submitter, $identifier, $submissiontype, $itemid = 0, $eventtype = null) {
         global $CFG, $DB, $turnitinacceptedfiles;
         $errorcode = 0;
         $attempt = 0;
@@ -2131,13 +2141,31 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
         // Get module data.
         $moduledata = $DB->get_record($cm->modname, array('id' => $cm->instance));
         $moduledata->resubmission_allowed = false;
+
         if ($cm->modname == 'assign') {
+            if (!isset($_SESSION["moodlesubmissionstatus"])) {
+                $_SESSION["moodlesubmissionstatus"] = null;
+            }
+
+            if ($eventtype == "content_uploaded" || $eventtype == "file_uploaded") {
+                $moodlesubmission = $DB->get_record('assign_submission',
+                    array('assignment' => $cm->instance,
+                        'userid' => $author,
+                        'id' => $itemid), 'status');
+                $_SESSION["moodlesubmissionstatus"] = $moodlesubmission->status;
+            }
+
             $moduledata->resubmission_allowed = $moduleobject->is_resubmission_allowed(
                 $cm->instance,
                 $settings["plagiarism_report_gen"],
                 $submissiontype,
-                $moduledata->attemptreopenmethod
+                $moduledata->attemptreopenmethod,
+                $_SESSION["moodlesubmissionstatus"]
             );
+
+            if ($eventtype != "content_uploaded" && $eventtype != "file_uploaded") {
+                unset($_SESSION["moodlesubmissionstatus"]);
+            }
         }
 
         // Work out submission method.
@@ -2178,8 +2206,8 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
 
                 // Check if this content/file has been submitted previously.
                 $previoussubmissions = $DB->get_records_select('plagiarism_turnitin_files',
-                                                    " cm = ? AND userid = ? AND ".$typefield." = ? AND identifier = ? ",
-                                                array($cm->id, $author, $submissiontype, $identifier),
+                                                    " cm = ? AND userid = ? AND ".$typefield." = ? ",
+                                                array($cm->id, $author, $submissiontype),
                                                     'id', $submissionfields);
                 $previoussubmission = end($previoussubmissions);
 
@@ -2189,7 +2217,7 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
                             && $timemodified <= $previoussubmission->lastmodified) {
                         return true;
                     } else if ($moduledata->resubmission_allowed) {
-                        // Replace submission in the specific circumstance where Turnitin can accomodate resubmissions.
+                        // Replace submission in the specific circumstance where Turnitin can accommodate resubmissions.
                         $submissionid = $previoussubmission->id;
                         $this->reset_tii_submission($cm, $author, $identifier, $previoussubmission, $submissiontype);
                         $tiisubmissionid = $previoussubmission->externalid;
@@ -2199,6 +2227,7 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
                             $this->reset_tii_submission($cm, $author, $identifier, $previoussubmission, $submissiontype);
                         } else {
                             $submissionid = $this->create_new_tii_submission($cm, $author, $identifier, $submissiontype);
+                            $tiisubmissionid = $previoussubmission->externalid;
                         }
                     }
                     $attempt = $previoussubmission->attempt;
@@ -2379,7 +2408,7 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
                 return true;
             } else {
                 $result = $this->queue_submission_to_turnitin(
-                                            $cm, $author, $submitter, $identifier, $submissiontype, $eventdata['objectid']);
+                                            $cm, $author, $submitter, $identifier, $submissiontype, $eventdata['objectid'], $eventdata['eventtype']);
             }
         }
 
@@ -2412,7 +2441,7 @@ class plagiarism_plugin_turnitin extends plagiarism_plugin {
 
                 $result = $result && $this->queue_submission_to_turnitin(
                                                 $cm, $author, $submitter, $pathnamehash, 'file',
-                                                $eventdata['objectid']);
+                                                $eventdata['objectid'], $eventdata['eventtype']);
             }
         }
 
@@ -2681,11 +2710,18 @@ function plagiarism_turnitin_send_queued_submissions() {
         // Get module data.
         $moduledata = $DB->get_record($cm->modname, array('id' => $cm->instance));
         $moduledata->resubmission_allowed = false;
+
         if ($cm->modname == 'assign') {
+            $moodlesubmission = $DB->get_record('assign_submission',
+                array('assignment' => $cm->instance,
+                    'userid' => $queueditem->userid,
+                    'id' => $queueditem->itemid), 'status');
+
             $moduledata->resubmission_allowed = $moduleobject->is_resubmission_allowed(
                 $cm->instance, $settings["plagiarism_report_gen"],
                 $queueditem->submissiontype,
-                $moduledata->attemptreopenmethod
+                $moduledata->attemptreopenmethod,
+                $moodlesubmission->status
             );
         }
 
@@ -2804,7 +2840,6 @@ function plagiarism_turnitin_send_queued_submissions() {
                 if (is_null($queueditem->externalid)) {
                     $apimethod = "createSubmission";
                 } else {
-
                     $apimethod = ($moduledata->resubmission_allowed) ? "replaceSubmission" : "createSubmission";
 
                     // Delete old text content submissions from Turnitin if not replacing.
@@ -2946,7 +2981,7 @@ function plagiarism_turnitin_send_queued_submissions() {
             );
 
             $message = $receipt->build_message($input);
-            $receipt->send_message($user->id, $message);
+            $receipt->send_message($user->id, $message, $cm->course);
 
             // Output a message in the cron for successfull submission to Turnitin.
             $outputvars = new stdClass();
