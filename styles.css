@@ -386,6 +386,10 @@ iframe html{background:none;}
     left: -116px;
 }
 
+.modal-dialog-scrollable {
+    display: block !important;
+} 
+
 .turnitin_setup_download_links label {
     width: 300px;
     line-height: 50px;
