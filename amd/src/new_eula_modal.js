@@ -55,6 +55,9 @@ define(['jquery',
                     if ($('.quizstartbuttondiv').length > 0) {
                         $('.quizstartbuttondiv').hide();
                     }
+                    if ($('#collapseAddForm #mformforum').length > 0) {
+                        $('#collapseAddForm #mformforum').hide();
+                    }
                 }
             }
         };
