@@ -25,6 +25,12 @@ define(['jquery',
                     turnitinEulaClass.show();
                 });
 
+              // Show the 'accept EULA' prompt for new in-page forum posts.
+                $(document).on('shown.bs.collapse', '#collapseAddForm', function (event, newid) {
+                    var turnitinEulaClass = $("#post-content-" + newid + " .pp_turnitin_eula");
+                    turnitinEulaClass.show();
+                });
+
                 $(document).on('click', '.pp_turnitin_eula_link', function() {
                     Modal.create({
                         type: ModalEulaLaunch.TYPE,
