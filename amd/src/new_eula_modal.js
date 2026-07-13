@@ -52,6 +52,9 @@ define(['jquery',
                     if (turnitinEulaClass.siblings('.mform').length > 0) {
                         turnitinEulaClass.siblings('.mform').hide();
                     }
+                    if ($('.quizstartbuttondiv').length > 0) {
+                        $('.quizstartbuttondiv').hide();
+                    }
                 }
             }
         };
