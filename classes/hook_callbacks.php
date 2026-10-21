@@ -36,7 +36,6 @@ class hook_callbacks {
      */
     public static function before_footer_html_generation(before_footer_html_generation $hook): void {
         global $CFG, $PAGE;
-        return;
 
         // Check whether the user is on the quiz page. If not, we don't need to do anything.
         if ($PAGE->pagetype !== 'mod-quiz-view') {
