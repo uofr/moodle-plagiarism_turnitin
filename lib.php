@@ -86,6 +86,8 @@ require_once($CFG->dirroot.'/plagiarism/turnitin/classes/modules/turnitin_forum.
 require_once($CFG->dirroot.'/plagiarism/turnitin/classes/modules/turnitin_quiz.class.php');
 require_once($CFG->dirroot.'/plagiarism/turnitin/classes/modules/turnitin_workshop.class.php');
 require_once($CFG->dirroot.'/plagiarism/turnitin/classes/modules/turnitin_coursework.class.php');
+require_once($CFG->dirroot.'/plagiarism/turnitin/classes/modules/turnitin_hsuforum.class.php');
+
 
 /**
  * Class plagiarism_plugin_turnitin
